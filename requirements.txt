@@ -1,0 +1,31 @@
+# ============================================================
+# Detección EPP Industrial — YOLOv8m
+# Redes Neuronales y Aprendizaje Profundo — Examen Parcial 2026-I
+# Entorno: Google Colab (Python 3.12, CUDA 12.8, GPU NVIDIA L4)
+# Instalación: pip install -r requirements.txt
+# ============================================================
+
+# ── Deep Learning ────────────────────────────────────────────
+torch==2.10.0
+torchvision==0.21.0
+torchaudio==2.10.0
+
+# ── Computer Vision / YOLO ───────────────────────────────────
+ultralytics==8.4.52
+opencv-python==4.10.0.84
+Pillow==11.0.0
+
+# ── Data & ML ────────────────────────────────────────────────
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.2
+matplotlib==3.9.2
+seaborn==0.13.2
+
+# ── Dataset Download ─────────────────────────────────────────
+roboflow==1.1.48
+
+# ── Utilities ────────────────────────────────────────────────
+tqdm==4.66.5
+PyYAML==6.0.2
+requests==2.32.3

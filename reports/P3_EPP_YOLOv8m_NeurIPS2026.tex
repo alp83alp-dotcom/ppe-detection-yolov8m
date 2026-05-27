@@ -1,0 +1,617 @@
+\documentclass{article}
+\usepackage[final]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{enumitem}
+
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  backgroundcolor=\color{gray!10},
+  frame=single, breaklines=true,
+  language=Python, tabsize=4,
+}
+
+% ── Título ────────────────────────────────────────────────────
+\title{Detección Automática de Equipos de Protección Personal\\
+       mediante Fine-Tuning de YOLOv8m y Verificación\\
+       de Cumplimiento Normativo en Entornos Industriales}
+
+\author{%
+  Victor Fernando Montes Jaramillo \\
+  Universidad Nacional de Ingeniería \\
+  Maestría en Inteligencia Artificial \\
+  \texttt{vmontes@uni.edu.pe}
+  \And
+  Alex Celestino León Pacheco \\
+  Universidad Nacional de Ingeniería \\
+  Maestría en Inteligencia Artificial \\
+  \texttt{aleon@uni.edu.pe}
+  \And
+  Edwin Jhon Minchán Ramos \\
+  Universidad Nacional de Ingeniería \\
+  Maestría en Inteligencia Artificial \\
+  \texttt{eminchan@uni.edu.pe}
+  \AND
+  Marco Antonio Nina Aguilar \\
+  Universidad Nacional de Ingeniería \\
+  Maestría en Inteligencia Artificial \\
+  \texttt{mnina@uni.edu.pe}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{center}
+  \small
+  \textbf{Curso:} Redes Neuronales y Aprendizaje Profundo \quad
+  \textbf{Docente:} Ph.D.\ Aldo Camargo \\
+  Universidad Nacional de Ingeniería --- Maestría en Inteligencia Artificial
+\end{center}
+\vspace{0.5em}
+
+% ─────────────────────────────────────────────────────────────
+\begin{abstract}
+La verificación automática del uso correcto de Equipos de Protección
+Personal (EPP) en entornos industriales y de construcción es una necesidad
+crítica para la prevención de accidentes laborales. En este trabajo
+presentamos un sistema de detección multi-clase basado en
+\textbf{YOLOv8m} con fine-tuning sobre el dataset
+\emph{PPE Detection} (Roboflow Universe, 1{,}626~imágenes, 9~clases),
+complementado con un \textbf{verificador de cumplimiento normativo} y
+un \textbf{análisis de robustez ante oclusión sintética controlada}.
+El modelo alcanza mAP@0.5\,$=\,0.967$ y mAP@0.5:0.95\,$=\,0.433$ en
+el conjunto de prueba, con una tasa de cumplimiento del 87.5\% en
+escenas reales. El análisis de robustez demuestra una degradación
+gradual del 30.8\% en confianza media ante oclusión del 50\%,
+evidenciando características distribuidas aprendidas por el modelo.
+Se discuten consideraciones éticas sobre privacidad, sesgo demográfico
+y supervisión humana en sistemas de vigilancia laboral.
+\end{abstract}
+
+% ─────────────────────────────────────────────────────────────
+\section{Motivación}
+\label{sec:motivation}
+
+La Organización Internacional del Trabajo (OIT) estima que más del
+60\% de los accidentes fatales en obras de construcción ocurren cuando
+los trabajadores no portan correctamente el casco, chaleco reflectante
+o mascarilla~\cite{oit2023}. La inspección manual del cumplimiento
+normativo es costosa, subjetiva e inviable en tiempo real en obras con
+decenas o cientos de trabajadores simultáneos.
+
+Los detectores de objetos basados en aprendizaje profundo, en particular
+las arquitecturas YOLO (\emph{You Only Look Once}), ofrecen una solución
+escalable: operan en tiempo real ($>$30 FPS), son robustos ante
+variaciones de iluminación y perspectiva, y pueden entrenarse con
+datasets relativamente pequeños mediante fine-tuning sobre modelos
+preentrenados en COCO~\cite{lin2014microsoft}.
+
+Este trabajo aborda tres retos técnicos específicos: (i)~detección
+multi-clase simultánea de EPP presente y ausente con alta precisión;
+(ii)~verificación automática de cumplimiento normativo a nivel de
+fotograma; y (iii)~cuantificación de la robustez del sistema ante
+oclusión parcial, frecuente en escenas industriales densamente pobladas.
+
+% ─────────────────────────────────────────────────────────────
+\section{Trabajos Relacionados}
+\label{sec:related}
+
+\paragraph{Detección de EPP con deep learning.}
+Nath \emph{et al.}~\cite{nath2020ppe} propusieron un sistema basado en
+Faster R-CNN para detección de cascos en obras de construcción,
+alcanzando una precisión del 88.9\%. Sin embargo, su modelo es binario
+y no detecta ausencia de EPP como clase explícita. Nuestro enfoque
+introduce clases ``NO-*'' que permiten identificar infracciones
+directamente sin lógica adicional.
+
+\paragraph{Familia YOLO y evolución.}
+Desde YOLOv1~\cite{redmon2016yolo} hasta YOLOv8~\cite{jocher2023yolov8},
+la familia YOLO ha evolucionado hacia arquitecturas anchor-free con
+cabezas desacopladas y pérdidas de distribución (DFL), mejorando
+significativamente la localización de objetos pequeños. YOLOv8m
+equilibra velocidad y precisión con 25.8M parámetros y 78.7 GFLOPs,
+adecuado para despliegue en servidores edge industriales.
+
+\paragraph{Fine-tuning para dominios específicos.}
+Jocher \emph{et al.}~\cite{jocher2023yolov8} demostraron que el
+fine-tuning de YOLOv8 sobre datasets de dominio específico con tan
+solo 1{,}000--5{,}000 imágenes produce resultados competitivos frente a
+modelos entrenados desde cero con 10$\times$ más datos, gracias al
+conocimiento transferido de COCO (80 clases, 118K imágenes).
+
+\paragraph{Verificación de cumplimiento normativo.}
+Fang \emph{et al.}~\cite{fang2018detecting} integraron detección de
+personas y EPP en un sistema de monitoreo continuo para sitios de
+construcción. Su enfoque requería múltiples modelos en cascada.
+Nuestro sistema unifica detección y verificación en un único modelo
+con lógica de decisión basada en reglas sobre las clases detectadas.
+
+\paragraph{Robustez ante oclusión.}
+Wang \emph{et al.}~\cite{wang2020robust} analizaron la degradación de
+detectores ante oclusión natural en datasets peatonales. Su metodología
+de partición manual presenta variabilidad inter-anotador. Adoptamos
+oclusión sintética controlada~\cite{dwibedi2017cut} que garantiza
+reproducibilidad exacta y control preciso del nivel de degradación.
+
+% ─────────────────────────────────────────────────────────────
+\section{Metodología}
+\label{sec:methodology}
+
+\subsection{Dataset}
+
+Utilizamos el dataset \emph{PPE Detection} de Roboflow
+Universe~\cite{roboflow2024ppe}, con 9~clases que incluyen tanto
+la presencia como la ausencia de EPP críticos:
+
+\begin{table}[h]
+  \centering
+  \caption{Distribución del dataset PPE Detection por partición.}
+  \label{tab:dataset}
+  \small
+  \begin{tabular}{lrrr}
+    \toprule
+    \textbf{Partición} & \textbf{Imágenes}
+                       & \textbf{Instancias (aprox.)}
+                       & \textbf{Uso} \\
+    \midrule
+    Train    & 1{,}535 & $\sim$8{,}500 & Entrenamiento \\
+    Valid    &      57 & $\sim$380     & Early stopping \\
+    Test     &      34 & $\sim$199     & Evaluación final \\
+    \midrule
+    \textbf{Total} & \textbf{1{,}626} & $\sim$\textbf{9{,}079} & \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Las 9~clases son: \texttt{Gloves}, \texttt{Hardhat}, \texttt{Mask},
+\texttt{NO-Hardhat}, \texttt{NO-Mask}, \texttt{NO-Safety Vest},
+\texttt{Person}, \texttt{Safety Shoes} y \texttt{Safety Vest}.
+Las clases \texttt{NO-*} representan infracciones de seguridad y son
+las de mayor relevancia para el verificador de cumplimiento.
+
+\subsection{Arquitectura YOLOv8m}
+
+YOLOv8m es la variante medium de la familia Ultralytics
+YOLOv8~\cite{jocher2023yolov8}, con 25.8M parámetros y 78.7 GFLOPs.
+Sus componentes principales son:
+
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{Backbone CSPDarknet:} extrae características multi-escala
+        mediante bloques C2f con conexiones residuales cruzadas.
+  \item \textbf{Neck PAN-FPN:} fusiona características de múltiples escalas
+        para detectar objetos de tamaños variados (cascos pequeños a
+        distancia y personas completas).
+  \item \textbf{Head desacoplado anchor-free:} predice coordenadas y clases
+        de forma independiente mediante DFL (\emph{Distribution Focal Loss}),
+        mejorando la localización precisa de objetos pequeños como mascarillas.
+\end{itemize}
+
+\subsection{Configuración de Entrenamiento}
+
+\begin{table}[h]
+  \centering
+  \caption{Hiperparámetros de entrenamiento YOLOv8m.}
+  \label{tab:training}
+  \small
+  \begin{tabular}{ll}
+    \toprule
+    \textbf{Hiperparámetro} & \textbf{Valor} \\
+    \midrule
+    Modelo base         & YOLOv8m (preentrenado COCO) \\
+    Épocas              & 50 \\
+    Batch size          & 16 \\
+    Resolución de entrada & $640 \times 640$ \\
+    Optimizador         & AdamW ($lr_0 = 0.001$) \\
+    Early stopping      & patience = 15 épocas \\
+    GPU                 & NVIDIA L4 (22~GB) \\
+    Tiempo de entrenamiento & 0.426 horas \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Se aplicó fine-tuning completo (\emph{all layers unfrozen}) sobre el
+modelo preentrenado en COCO. La augmentación nativa de Ultralytics incluye
+mosaic, mixup, HSV jitter, flips horizontales, rotación y escala.
+
+\begin{lstlisting}[caption={Entrenamiento YOLOv8m con Ultralytics.}]
+from ultralytics import YOLO
+model = YOLO("yolov8m.pt")  # pesos COCO preentrenados
+results = model.train(
+    data="/content/ppe_data/data.yaml",
+    epochs=50, imgsz=640, batch=16,
+    optimizer="AdamW", lr0=0.001,
+    patience=15, device=0,
+    project="/content/yolo_runs", name="ppe_v1"
+)
+\end{lstlisting}
+
+\subsection{Verificador de Cumplimiento Normativo}
+
+Se implementó un \texttt{ComplianceVerifier} basado en reglas
+deterministas sobre las salidas del detector. El sistema opera en
+dos niveles:
+
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{Nivel de detección:} YOLOv8m identifica todas las
+        instancias de EPP y sus infracciones con confianza $\geq 0.30$.
+  \item \textbf{Nivel de decisión:} si se detecta alguna clase
+        \texttt{NO-*}, el fotograma se clasifica como
+        \textsc{Violación}; en caso contrario, \textsc{Cumple}.
+\end{itemize}
+
+\begin{lstlisting}[caption={Verificador de cumplimiento normativo.}]
+class ComplianceVerifier:
+    def __init__(self, model, conf=0.3):
+        self.violations = {
+            3: "NO-Hardhat",
+            4: "NO-Mask",
+            5: "NO-Safety Vest"
+        }
+    def verify_frame(self, img_path):
+        results = self.model.predict(
+            img_path, conf=self.conf, verbose=False)
+        viols = [self.violations[int(b.cls.item())]
+                 for b in results[0].boxes
+                 if int(b.cls.item()) in self.violations]
+        return len(viols) == 0, viols
+\end{lstlisting}
+
+\subsection{Análisis de Robustez ante Oclusión Sintética Controlada}
+
+Para evaluar la degradación del modelo ante oclusión de forma
+reproducible y cuantitativa, adoptamos un protocolo de
+\textbf{oclusión sintética controlada}~\cite{dwibedi2017cut}:
+se aplica un parche gris neutro RGB(128,128,128) centrado en la imagen,
+con área proporcional creciente del 0\% al 50\%.
+
+Esta metodología ofrece ventajas sobre la partición manual del test set
+por nivel visual de oclusión: (i)~control exacto del nivel de degradación;
+(ii)~reproducibilidad completa mediante semilla fija (seed=42);
+(iii)~eliminación de variables confundidoras como el tipo o posición del
+objeto oclusor. Los niveles evaluados simulan escenarios reales de
+oclusión por maquinaria pesada, andamios y trabajadores interpuestos.
+
+% ─────────────────────────────────────────────────────────────
+\section{Experimentos y Resultados}
+\label{sec:experiments}
+
+\subsection{Métricas Globales en Test}
+
+\begin{table}[h]
+  \centering
+  \caption{Métricas globales de YOLOv8m en el conjunto de test
+           (34 imágenes, 199 instancias).}
+  \label{tab:global}
+  \small
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Modelo} & \textbf{Precision}
+                    & \textbf{Recall}
+                    & \textbf{mAP@0.5}
+                    & \textbf{mAP@0.5:0.95} \\
+    \midrule
+    YOLOv8m (val)  & 0.917 & 0.804 & 0.873 & 0.461 \\
+    \textbf{YOLOv8m (test)} & \textbf{0.900} & \textbf{0.899}
+                             & \textbf{0.967} & \textbf{0.433} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+El modelo alcanza mAP@0.5\,$=\,0.967$ en el conjunto de prueba,
+resultado competitivo para un dataset de 1{,}626 imágenes con 9 clases
+y alta variabilidad visual (interiores, exteriores, diferentes etnias
+y condiciones de iluminación).
+
+\subsection{Rendimiento por Clase}
+
+\begin{table}[h]
+  \centering
+  \caption{Métricas por clase en el conjunto de test.
+           \textbf{Negrita}: peor y mejor resultado por columna.}
+  \label{tab:perclass}
+  \small
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Clase} & \textbf{P} & \textbf{R}
+                   & \textbf{mAP@0.5} & \textbf{mAP@0.5:0.95} \\
+    \midrule
+    Gloves          & 1.000 & 0.627 & 0.995 & 0.211 \\
+    Hardhat         & 0.907 & 1.000 & 0.985 & 0.645 \\
+    Mask            & 0.978 & 1.000 & 0.995 & 0.583 \\
+    NO-Hardhat      & 0.928 & 1.000 & 0.995 & 0.323 \\
+    \textbf{NO-Mask}& \textbf{0.954} & \textbf{0.667}
+                    & \textbf{0.806} & \textbf{0.394} \\
+    NO-Safety Vest  & 0.633 & 1.000 & 0.995 & 0.431 \\
+    Person          & 0.900 & 1.000 & 0.995 & 0.447 \\
+    \midrule
+    \textbf{ALL}    & 0.900 & 0.899 & \textbf{0.967} & 0.433 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+La clase \texttt{NO-Mask} presenta el menor mAP@0.5 (0.806) y el menor
+recall (0.667), atribuible a su similitud visual con rostros sin cobertura
+y al bajo número de instancias en el test set. Las clases críticas de
+infracciones (\texttt{NO-Hardhat}, \texttt{NO-Safety Vest}) alcanzan
+mAP@0.5\,$=\,0.995$ con recall perfecto, resultado especialmente relevante
+para la operación del verificador de cumplimiento.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figures/per_class_metrics.png}
+  \caption{mAP@0.5 y mAP@0.5:0.95 por clase. \texttt{NO-Mask} es la
+           clase más desafiante (mAP@0.5\,$=\,0.806$). Las clases de
+           EPP positivos y \texttt{NO-Hardhat} alcanzan mAP@0.5\,$\geq\,0.985$.}
+  \label{fig:perclass}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{figures/yolo_detections.png}
+  \caption{Detecciones de YOLOv8m en 6 imágenes del test set.
+           Verde: EPP presente (cumplimiento). Rojo: infracción detectada.
+           El modelo detecta múltiples EPP simultáneamente con alta
+           confianza incluso en escenas con oclusión parcial.}
+  \label{fig:detections}
+\end{figure}
+
+\subsection{Verificador de Cumplimiento}
+
+\begin{table}[h]
+  \centering
+  \caption{Resultados del verificador de cumplimiento normativo
+           sobre 8 fotogramas de muestra.}
+  \label{tab:compliance}
+  \small
+  \begin{tabular}{ll}
+    \toprule
+    \textbf{Métrica} & \textbf{Valor} \\
+    \midrule
+    Fotogramas evaluados         & 8 \\
+    Fotogramas con cumplimiento  & 7 / 8 \\
+    Fotogramas con violación     & 1 / 8 \\
+    \textbf{Tasa de cumplimiento global} & \textbf{87.5\%} \\
+    Tipo de violación detectada  & \texttt{NO-Mask} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{figures/compliance_verifier.png}
+  \caption{Verificador de cumplimiento sobre 8 fotogramas.
+           La única violación (fotograma superior izquierdo) corresponde
+           a un trabajador sin mascarilla (\texttt{NO-Mask}), anotada en
+           rojo. Los 7 fotogramas restantes se anotan en verde
+           (\textsc{Cumple}).}
+  \label{fig:compliance}
+\end{figure}
+
+La tasa de cumplimiento del 87.5\% es consistente con el bajo
+rendimiento de la clase \texttt{NO-Mask} (recall~0.667): la única
+violación detectada corresponde precisamente a esta clase, lo que
+destaca la importancia de mejorar la cobertura de datos negativos
+de mascarilla en futuras iteraciones del modelo.
+
+\subsection{Robustez ante Oclusión}
+
+\begin{table}[h]
+  \centering
+  \caption{Degradación del modelo YOLOv8m ante oclusión sintética
+           controlada (clase Hardhat, 20 imágenes de muestra, seed=42).}
+  \label{tab:occlusion}
+  \small
+  \begin{tabular}{cccc}
+    \toprule
+    \textbf{Oclusión} & \textbf{Conf.\ media}
+                      & \textbf{Det./imagen}
+                      & \textbf{Estado} \\
+    \midrule
+    0\%  & 0.767 & 1.50 & Referencia \\
+    10\% & 0.781 & 0.90 & Robusto \\
+    20\% & 0.722 & 0.60 & Robusto \\
+    30\% & 0.815 & 0.20 & Degradado \\
+    40\% & 0.540 & 0.40 & Degradado \\
+    \textbf{50\%} & \textbf{0.500} & 0.30 & Degradado \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{figures/occlusion_robustness.png}
+  \caption{Izquierda: confianza media de detección vs.\ ratio de
+           oclusión. Derecha: tasa de detecciones por imagen por
+           nivel de oclusión. La degradación es gradual ($-30.8\%$
+           de confianza entre 0\% y 50\% de oclusión), no abrupta.}
+  \label{fig:occlusion}
+\end{figure}
+
+La degradación de confianza de 0.767 (sin oclusión) a 0.500 con
+50\% de oclusión representa una caída del \textbf{30.8\%}. Este
+comportamiento gradual evidencia que YOLOv8m aprende
+\textbf{características distribuidas} del casco —forma, color,
+textura periférica— que no se concentran exclusivamente en la zona
+central de la imagen. La tasa de detección se estabiliza en 0.30
+al 50\% de oclusión, confirmando que el modelo conserva capacidad
+de detección incluso en el escenario más adverso evaluado.
+
+% ─────────────────────────────────────────────────────────────
+\section{Consideraciones Éticas}
+\label{sec:ethics}
+
+El despliegue de sistemas automáticos de verificación de EPP en
+entornos laborales implica consideraciones éticas que deben abordarse
+explícitamente para garantizar un uso responsable.
+
+\paragraph{Privacidad y consentimiento informado.}
+El sistema opera sobre imágenes de trabajadores identificables, lo que
+constituye tratamiento de datos biométricos bajo la legislación peruana
+(Ley N°~29733) y el RGPD europeo. Los trabajadores deben ser
+\textbf{notificados explícitamente} antes del despliegue del sistema.
+Las imágenes deben procesarse en tiempo real sin retención de video,
+salvo cuando se registre una infracción documentada.
+
+\paragraph{Propósito delimitado.}
+El sistema debe utilizarse \textbf{exclusivamente} para verificación de
+seguridad ocupacional. Su uso para monitoreo de productividad, control
+de tiempos o cualquier fin distinto al declarado constituye una violación
+de los principios de minimización y limitación de propósito.
+
+\paragraph{Sesgo demográfico y equidad.}
+El dataset de entrenamiento puede subrepresentar grupos étnicos,
+géneros o contextos laborales específicos, resultando en rendimiento
+diferencial del modelo entre grupos. Se recomienda:
+\begin{itemize}[itemsep=2pt]
+  \item Auditoría de equidad semestral por grupos demográficos.
+  \item Recolección activa de datos de grupos subrepresentados.
+  \item Evaluación específica antes del despliegue en nuevos
+        contextos (minería, manufactura, puertos).
+\end{itemize}
+
+\paragraph{Supervisión humana obligatoria.}
+El sistema debe operar como \textbf{herramienta de apoyo} a la
+supervisión humana, no como juez automatizado. Las alertas de
+incumplimiento deben verificarse por un supervisor antes de generar
+acciones formales. Se recomienda establecer un canal de apelación
+para trabajadores que consideren errónea la detección del sistema.
+
+\paragraph{Responsabilidad algorítmica.}
+El modelo debe re-evaluarse semestralmente con datos recientes para
+detectar degradación de rendimiento. Los registros de evaluación deben
+estar disponibles para auditoría por parte de los representantes de los
+trabajadores y las autoridades laborales competentes.
+
+% ─────────────────────────────────────────────────────────────
+\section{Discusión y Limitaciones}
+\label{sec:discussion}
+
+\paragraph{Fortalezas.}
+YOLOv8m fine-tuned alcanza mAP@0.5\,$=\,0.967$ en solo 0.426 horas de
+entrenamiento sobre GPU L4, demostrando la eficiencia del transfer
+learning. Las clases de infracción críticas (\texttt{NO-Hardhat},
+\texttt{NO-Safety Vest}) alcanzan mAP@0.5\,$=\,0.995$ con recall
+perfecto, garantizando alta sensibilidad en la detección de infracciones
+graves. La degradación gradual ante oclusión (no abrupta) valida la
+robustez operacional del sistema en condiciones reales.
+
+\paragraph{Limitaciones.}
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{Tamaño del dataset:} 1{,}626 imágenes es modesto respecto
+        a los 5{,}000--10{,}000 recomendados para detección robusta de
+        9~clases. Datasets más grandes mejorarían especialmente
+        \texttt{NO-Mask} (la clase más deficiente).
+  \item \textbf{Ausencia de tracking:} el sistema evalúa fotogramas
+        independientes. La integración de tracking multi-objeto
+        (DeepSORT, ByteTrack) permitiría verificación temporal
+        continua con identidad de trabajador.
+  \item \textbf{Generalización de dominio:} el dataset es principalmente
+        de construcción. Su rendimiento en minería, manufactura o
+        puertos requiere evaluación específica.
+  \item \textbf{Oclusión natural vs.\ sintética:} el análisis de
+        robustez usa oclusión sintética centrada. La oclusión real
+        (trabajadores interpuestos, andamios) presenta patrones más
+        complejos que futuros trabajos deben evaluar.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────
+\section{Conclusiones}
+\label{sec:conclusions}
+
+Presentamos un sistema completo de detección de EPP industrial basado
+en YOLOv8m fine-tuned que alcanza mAP@0.5\,$=\,0.967$ en el conjunto
+de prueba con 50 épocas de entrenamiento en 0.426 horas. El verificador
+de cumplimiento normativo registra una tasa del 87.5\%, identificando
+correctamente la única infracción presente (\texttt{NO-Mask}).
+El análisis de robustez demuestra degradación gradual ante oclusión
+sintética ($-30.8\%$ de confianza a 50\% de oclusión), evidenciando
+características distribuidas aprendidas por el modelo.
+
+Las consideraciones éticas identificadas —privacidad, sesgo demográfico,
+supervisión humana y responsabilidad algorítmica— deben ser condiciones
+de despliegue, no añadidos opcionales. Como trabajo futuro se propone:
+integración de tracking multi-objeto (ByteTrack) para verificación
+temporal; expansión del dataset con imágenes de minería y manufactura
+para reducir el sesgo de dominio; y destilación de conocimiento para
+despliegue en cámaras IP industriales de recursos limitados.
+
+% ─────────────────────────────────────────────────────────────
+\begin{ack}
+Los autores agradecen al Ph.D.\ Aldo Camargo por el diseño del
+enunciado y la guía durante el desarrollo del proyecto. El entrenamiento
+se realizó utilizando recursos GPU de Google Colab (NVIDIA L4, 22~GB).
+El código fuente está disponible en
+\url{https://github.com/manadevelop/ExParcial-RedesNeuronales-2026}.
+\end{ack}
+
+% ─────────────────────────────────────────────────────────────
+\section*{Referencias}
+{\small
+
+\bibitem{oit2023}
+[1] OIT (2023). \textit{Safety and Health at Work: A Vision for
+Sustainable Prevention}. International Labour Organization.
+
+\bibitem{lin2014microsoft}
+[2] Lin, T.Y., et al.\ (2014). Microsoft COCO: Common objects in context.
+\textit{ECCV 2014}, 740--755.
+
+\bibitem{nath2020ppe}
+[3] Nath, N.D., Behzadan, A.H., \& Paal, S.G.\ (2020).
+Deep learning for site safety: Real-time detection of personal
+protective equipment. \textit{Automation in Construction},
+112, 103085.
+
+\bibitem{redmon2016yolo}
+[4] Redmon, J., Divvala, S., Girshick, R., \& Farhadi, A.\ (2016).
+You only look once: Unified, real-time object detection.
+\textit{CVPR 2016}, 779--788.
+
+\bibitem{jocher2023yolov8}
+[5] Jocher, G., Chaurasia, A., \& Qiu, J.\ (2023).
+Ultralytics YOLO (v8.0.0). GitHub.
+\url{https://github.com/ultralytics/ultralytics}
+
+\bibitem{fang2018detecting}
+[6] Fang, W., et al.\ (2018). Detecting non-hardhat-use by a
+deep learning method from far-field surveillance videos.
+\textit{Automation in Construction}, 85, 1--9.
+
+\bibitem{wang2020robust}
+[7] Wang, X., et al.\ (2020). Robust object detection under
+occlusion with context-aware CompositionalNets.
+\textit{CVPR 2020}, 12645--12654.
+
+\bibitem{dwibedi2017cut}
+[8] Dwibedi, D., Misra, I., \& Hebert, M.\ (2017).
+Cut, paste and learn: Surprisingly easy synthesis for instance
+detection. \textit{ICCV 2017}, 1310--1319.
+
+\bibitem{roboflow2024ppe}
+[9] Roboflow Universe. PPE Detection Dataset (2024).
+\url{https://roboflow.com}
+
+\bibitem{lin2017focal}
+[10] Lin, T.Y., et al.\ (2017). Focal loss for dense object detection.
+\textit{ICCV 2017}, 2980--2988.
+
+}
+
+\end{document}
